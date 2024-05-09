@@ -18,8 +18,8 @@ import random
 
 
 NUM_STEPS = 5000                    # Timesteps data to collect before updating
-BATCH_SIZE = 20                   # Batch size of training data
-TOTAL_TIMESTEPS = NUM_STEPS * 50  # 500   # Total timesteps to run
+BATCH_SIZE = 30                   # Batch size of training data
+TOTAL_TIMESTEPS = NUM_STEPS * 7500  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
 NUM_EPOCHS = 500                    # Number of epochs to train
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     trainer = policy.PPOTrainer(
         network,
         ppo_clip_val=0.2,
-        target_kl_div=0.01,
+        target_kl_div=0.2,
         max_policy_train_iters=10,
         value_train_iters=10,
         policy_lr=learning_rate,
@@ -134,18 +134,21 @@ if __name__ == "__main__":
 
     # Plot episodic reward
     # Create a figure and subplots
-    fig, axs = plt.subplots(1, 3)
+    fig, axs = plt.subplots(1, 4)
     x_values = range(len(trainer.value_loss))
+    x2_values = range(len(trainer.kl_div_arr))
     trainer.actor_loss = np.hstack(trainer.actor_loss)
     trainer.policy_loss = np.hstack(trainer.policy_loss)
     trainer.value_loss = np.hstack(trainer.value_loss)
     axs[0].plot(x_values, trainer.value_loss)
-    axs[0].set_title('value_loss')
+    axs[0].set_title('value loss')
     axs[1].plot(x_values, trainer.actor_loss)
-    axs[1].set_title('actor_loss')
+    axs[1].set_title('actor loss')
     axs[2].plot(x_values, trainer.policy_loss)
-    axs[2].set_title('policy_loss')
-    plt.tight_layout()
+    axs[2].set_title('policy loss')
+    axs[3].plot(x_values, trainer.kl_div_arr)
+    axs[3].set_title('kl div stopped')
+    #plt.tight_layout()
     plt.show()
 
     #play_new_game(policy)

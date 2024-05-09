@@ -37,7 +37,6 @@ class ActorCriticNetwork(nn.Module):
     def value(self, obs):
         obs_torch = torch.unsqueeze(torch.tensor(obs, dtype=torch.float32), 0)
         value = self.value_layers(obs_torch)
-        #value = torch.squeeze(value).detach().numpy()
         return value
 
     def policy(self, obs):
@@ -48,21 +47,16 @@ class ActorCriticNetwork(nn.Module):
         return dist
 
     def forward(self, obs):
-        #observation = obs.clone()
         obs_torch = torch.unsqueeze(torch.tensor(obs, dtype=torch.float32), 0)
         value = self.value_layers(obs_torch)
         mu = self.policy_layers(obs_torch)
-        #std = torch.exp(self.log_std)
         std = self.log_std.exp()
         dist = Normal(mu, std)
-        #value = torch.squeeze(value).detach().numpy()
         return dist, value
 
     def sample(self, dist):
         action = dist.sample()
-        #log_prob = dist.log_prob(action).sum(dim=1)
         log_prob = torch.sum(dist.log_prob(action), dim=1)
-        #log_prob = torch.squeeze(log_prob).detach().numpy()
         return action, log_prob
 
     def save(self, filepath_model_pi, filepath_model_v):
@@ -96,6 +90,7 @@ class PPOTrainer():
         self.actor_loss_every_iter = []
         self.value_loss_every_iter = []
         self.policy_loss_every_iter = []
+        self.kl_div_arr = []
 
         self.optim = optim.Adam(self.network.parameters(), lr=value_lr)
 
@@ -112,13 +107,9 @@ class PPOTrainer():
                 new_log_probs_vec.append(new_log_probs)
                 values.append(value)
                 entropys.append(entropy)
-            #new_log_probs_vec = np.hstack(new_log_probs_vec)
             new_log_probs_vec = torch.stack(new_log_probs_vec)
-            #values = np.hstack(values)
             values = torch.stack(values)
-            #entropys = np.hstack(entropys)
             entropys = torch.stack(entropys)
-            #new_log_probs = torch.sum(dist.log_prob(acts), dim=1)
             policy_ratio = torch.exp(new_log_probs_vec - old_log_probs)
             clipped_ratio = policy_ratio.clamp(
                 1 - self.ppo_clip_val, 1 + self.ppo_clip_val)
@@ -136,15 +127,13 @@ class PPOTrainer():
             if i == self.max_policy_train_iters -1:
                 print("end of training")
                 print(f"value loss:{value_loss} | actor loss:{actor_loss} | policy loss:{policy_loss}")
-            # self.actor_loss_every_iter.append(actor_loss)
-            # self.value_loss_every_iter.append(value_loss)
-            # self.policy_loss_every_iter.append(policy_loss)
             self.optim.zero_grad()
             policy_loss.backward()
             self.optim.step()
             kl_div = (old_log_probs - new_log_probs).mean()
             if kl_div >= self.target_kl_div:
                 print(f"target kl achived after {i} iterations")
+                self.kl_div_arr.append(i)
                 break
         actor_loss = torch.squeeze(actor_loss).detach().numpy()
         value_loss = torch.squeeze(value_loss).detach().numpy()
