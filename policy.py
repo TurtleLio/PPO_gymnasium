@@ -35,12 +35,17 @@ class ActorCriticNetwork(nn.Module):
         self.apply(init_weights)
 
     def value(self, obs):
-        value = self.value_layers(obs)
+        obs_torch = torch.unsqueeze(torch.tensor(obs, dtype=torch.float32), 0)
+        value = self.value_layers(obs_torch)
+        #value = torch.squeeze(value).detach().numpy()
         return value
 
     def policy(self, obs):
-        policy_logits = self.policy_layers(obs)
-        return policy_logits
+        obs_torch = torch.unsqueeze(torch.tensor(obs, dtype=torch.float32), 0)
+        policy_logits = self.policy_layers(obs_torch)
+        std = self.log_std.exp()
+        dist = Normal(policy_logits, std)
+        return dist
 
     def forward(self, obs):
         #observation = obs.clone()
@@ -50,21 +55,20 @@ class ActorCriticNetwork(nn.Module):
         #std = torch.exp(self.log_std)
         std = self.log_std.exp()
         dist = Normal(mu, std)
-        value = torch.squeeze(value).detach().numpy()
+        #value = torch.squeeze(value).detach().numpy()
         return dist, value
 
     def sample(self, dist):
         action = dist.sample()
         #log_prob = dist.log_prob(action).sum(dim=1)
-        log_prob = torch.sum(dist.log_prob(action), dim =1)
-        log_prob = torch.squeeze(log_prob).detach().numpy()
+        log_prob = torch.sum(dist.log_prob(action), dim=1)
+        #log_prob = torch.squeeze(log_prob).detach().numpy()
         return action, log_prob
 
-    def save(self, filepath_model_pi, filepath_model_v, filepath_model_shared):
+    def save(self, filepath_model_pi, filepath_model_v):
         """
         Save the model and optimizer parameters to the given filepath.
         """
-        #torch.save(self.shared_layers.state_dict(), filepath_model_shared)
         torch.save(self.policy_layers.state_dict(), filepath_model_pi)
         torch.save(self.value_layers.state_dict(), filepath_model_v)
         print("Saved PI network")
@@ -98,20 +102,34 @@ class PPOTrainer():
 
     def train_policy(self, obs, next_obs, acts, old_log_probs, gaes, rewards):
         torch.autograd.set_detect_anomaly(True)
+        rewards = torch.tensor(rewards)
         for i in range(self.max_policy_train_iters):
-            dist, value = self.network(obs)
-            entropy = dist.entropy().mean()
-            new_log_probs = dist.log_prob(acts)
-            policy_ratio = torch.exp(new_log_probs - old_log_probs)
+            new_log_probs_vec, values, entropys = [], [], []
+            for ob in obs:
+                dist, value = self.network.forward(ob)
+                action, new_log_probs = self.network.sample(dist)
+                entropy = dist.entropy().mean()
+                new_log_probs_vec.append(new_log_probs)
+                values.append(value)
+                entropys.append(entropy)
+            #new_log_probs_vec = np.hstack(new_log_probs_vec)
+            new_log_probs_vec = torch.stack(new_log_probs_vec)
+            #values = np.hstack(values)
+            values = torch.stack(values)
+            #entropys = np.hstack(entropys)
+            entropys = torch.stack(entropys)
+            #new_log_probs = torch.sum(dist.log_prob(acts), dim=1)
+            policy_ratio = torch.exp(new_log_probs_vec - old_log_probs)
             clipped_ratio = policy_ratio.clamp(
                 1 - self.ppo_clip_val, 1 + self.ppo_clip_val)
             clipped_loss = clipped_ratio * gaes
             full_loss = policy_ratio * gaes
             actor_loss_not_mean = torch.where(full_loss < clipped_loss, full_loss, clipped_loss)
             actor_loss = torch.mean(actor_loss_not_mean)
-            value_loss_not_mean = (rewards - value).pow(2)
+            value_loss_not_mean = (rewards - values).pow(2)
             value_loss = torch.mean(value_loss_not_mean)
-            policy_loss = value_loss + actor_loss - 0.01 * entropy
+            entropys_mean = torch.mean(entropys)
+            policy_loss = value_loss + actor_loss - 0.01 * entropys_mean
             if i == 0:
                 print("start of training")
                 print(f"value loss:{value_loss} | actor loss:{actor_loss} | policy loss:{policy_loss}")
@@ -128,6 +146,9 @@ class PPOTrainer():
             if kl_div >= self.target_kl_div:
                 print(f"target kl achived after {i} iterations")
                 break
+        actor_loss = torch.squeeze(actor_loss).detach().numpy()
+        value_loss = torch.squeeze(value_loss).detach().numpy()
+        policy_loss = torch.squeeze(policy_loss).detach().numpy()
         self.actor_loss.append(actor_loss)
         self.value_loss.append(value_loss)
         self.policy_loss.append(policy_loss)
@@ -167,7 +188,8 @@ def calculate_gaes(rewards, prev_values, next_obs, model, gamma=0.99, decay=0.95
             next_value = model.value(obs)
         next_values.append(next_value)
     deltas = [rew + gamma * next_value - val for rew, val, next_value in zip(rewards, prev_values, next_values)]
-    deltas_stacked = torch.stack(deltas)
+    deltas_stacked = torch.FloatTensor(deltas)
+    #deltas_stacked = torch.stack(deltas)
     return deltas_stacked
 
 def rollout(model, env, max_steps=1000):

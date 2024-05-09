@@ -22,7 +22,8 @@ def play_new_game(network):
         action, log_prob = network.sample(dist)
 
         clipped_action = np.clip(action, env_play.action_space.low, env_play.action_space.high)
-
+        clipped_action = clipped_action.numpy()
+        clipped_action = clipped_action[0]
         state, reward, terminated, truncated, _ = env_play.step(clipped_action)
 
         reward_sum += reward
@@ -43,7 +44,7 @@ if __name__ == "__main__":
     upper_bound = env.action_space.high
 
     network = policy.ActorCriticNetwork(obs_dim, action_dim)
-    network.policy_layers.load_state_dict(torch.load('saved_network_new_game/pi_network.pth'))
-    network.value_layers.load_state_dict(torch.load('saved_network_new_game/v_network.pth'))
+    network.policy_layers.load_state_dict(torch.load('saved_network/pi_network.pt'))
+    network.value_layers.load_state_dict(torch.load('saved_network/v_network.pt'))
 
     play_new_game(network)
