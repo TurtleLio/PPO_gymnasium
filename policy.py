@@ -22,14 +22,18 @@ class ActorCriticNetwork(nn.Module):
         self.policy_layers = nn.Sequential(
             nn.Linear(obs_space_size, 64),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(64, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
             nn.ReLU(),
             nn.Linear(64, action_space_size))
 
         self.value_layers = nn.Sequential(
-            nn.Linear(obs_space_size, 32),
+            nn.Linear(obs_space_size, 256),
             nn.ReLU(),
-            nn.Linear(32, 1))
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 1))
 
         self.log_std = nn.Parameter(torch.ones(1, action_space_size) * std)
         self.apply(init_weights)
