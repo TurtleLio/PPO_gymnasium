@@ -98,7 +98,7 @@ class PPOTrainer():
 
         self.optim = optim.Adam(self.network.parameters(), lr=value_lr)
 
-    def train_policy(self, obs, next_obs, acts, old_log_probs, gaes, rewards):
+    def train_policy(self, obs, next_obs, acts, old_log_probs, advantage, rewards, returns):
         torch.autograd.set_detect_anomaly(True)
         rewards = torch.tensor(rewards)
         for i in range(self.max_policy_train_iters):
@@ -112,18 +112,22 @@ class PPOTrainer():
                 entropys.append(entropy)
             new_log_probs_vec = torch.stack(new_log_probs_vec)
             values = torch.stack(values)
+            #values = torch.squeeze(values)
             entropys = torch.stack(entropys)
+            returns_stacked = torch.stack(returns)
             policy_ratio = torch.exp(new_log_probs_vec - old_log_probs)
             clipped_ratio = policy_ratio.clamp(
                 1 - self.ppo_clip_val, 1 + self.ppo_clip_val)
-            clipped_loss = clipped_ratio * gaes
-            full_loss = policy_ratio * gaes
-            actor_loss_not_mean = torch.where(full_loss < clipped_loss, full_loss, clipped_loss)
-            actor_loss = torch.mean(actor_loss_not_mean)
-            value_loss_not_mean = (rewards - values).pow(2)
-            value_loss = torch.mean(value_loss_not_mean)
+            clipped_loss = clipped_ratio * advantage
+            full_loss = policy_ratio * advantage
+            #actor_loss_not_mean = torch.where(full_loss < clipped_loss, full_loss, clipped_loss)
+            #actor_loss = torch.mean(actor_loss_not_mean)
+            actor_loss = - torch.min(clipped_loss, full_loss).mean()
+            # value_loss_not_mean = (rewards - values).pow(2)
+            # value_loss = torch.mean(value_loss_not_mean)
+            value_loss = (returns_stacked - values).pow(2).mean()
             entropys_mean = torch.mean(entropys)
-            policy_loss = value_loss + actor_loss - 0.01 * entropys_mean
+            policy_loss = 0.5 * value_loss + actor_loss - 0.001 * entropys_mean
             if i == 0:
                 print("start of training")
                 print(f"value loss:{value_loss} | actor loss:{actor_loss} | policy loss:{policy_loss}")
@@ -171,20 +175,27 @@ def discount_rewards(rewards, gamma=0.99):
         new_rewards.append(float(rewards[i]) + gamma * new_rewards[-1])
     return np.array(new_rewards[::-1])
 
-def calculate_gaes(rewards, prev_values, next_obs, model, gamma=0.99, decay=0.95):
+def calculate_gaes(rewards, values, last_value, next_obs, model, gamma=0.99, decay=0.95):
     """
     Return the General Advantage Estimates from the given rewards and values.
     Paper: https://arxiv.org/pdf/1506.02438.pdf
     """
-    next_values = []
-    for obs in next_obs:
-        with torch.no_grad():
-            next_value = model.value(obs)
-        next_values.append(next_value)
-    deltas = [rew + gamma * next_value - val for rew, val, next_value in zip(rewards, prev_values, next_values)]
-    deltas_stacked = torch.FloatTensor(deltas)
+    # next_values = []
+    # for obs in next_obs:
+    #     with torch.no_grad():
+    #         next_value = model.value(obs)
+    #     next_values.append(next_value)
+    gae = 0
+    returns = []
+    values = values + [last_value]
+    for step in reversed(range(len(rewards))):
+        delta = rewards[step] + gamma * values[step + 1] - values[step]
+        gae = delta + gamma * decay * gae
+        returns.insert(0, gae + values[step])
+    #deltas = [rew + gamma * next_value - val for rew, val, next_value in zip(rewards, prev_values, next_values)]
+    #deltas_stacked = torch.FloatTensor(deltas)
     #deltas_stacked = torch.stack(deltas)
-    return deltas_stacked
+    return returns
 
 def rollout(model, env, max_steps=1000):
     """
