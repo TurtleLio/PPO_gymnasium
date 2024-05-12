@@ -19,12 +19,13 @@ import random
 
 NUM_STEPS = 5000                    # Timesteps data to collect before updating
 BATCH_SIZE = 30                   # Batch size of training data
+MINI_BATCH_SIZE = 50                # Number of episodes to take from the batch in precentage %
 TOTAL_TIMESTEPS = NUM_STEPS * 7500  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
 NUM_EPOCHS = 500                    # Number of epochs to train
-REPORT_STEPS = 1000               # Number of timesteps between reports
-random_reset = random.randint(1, 5000)
+REPORT_STEPS = 1             # Number of timesteps between reports
+
 
 if __name__ == "__main__":
 
@@ -53,80 +54,83 @@ if __name__ == "__main__":
     season_count = 0
     batch_count = 0
 
-    pi_losses, v_losses, total_losses, approx_kls, stds = [], [], [], [], []
-    reward_vec, value_vec, log_vec, gae_lambda_vec = [], [], [], []
-    prev_obs_vec, obs_vec, action_vec = [], [], []
+    pi_losses, v_losses, total_losses, approx_kls, stds, best_batch_reward = [], [], [], [], [], []
     max_rewards = []
 
-    obs, _ = env.reset()
+    for t in range(NUM_EPOCHS):
+        reward_vec, value_vec, log_vec, advantage_mean_vec, prev_obs_vec, obs_vec, action_vec = [[] for _ in
+            range(BATCH_SIZE)], [[]for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in
+            range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)]
 
-    for t in range(TOTAL_TIMESTEPS):
-
+        # reward_vec, value_vec, log_vec, advantage_mean_vec, prev_obs_vec, obs_vec, action_vec = [], [], [], [], [], [], []
+        # for i in range(BATCH_SIZE):
+        #     for item in zip(prev_obs_vec, obs_vec, action_vec, advantage_mean_vec, reward_vec, value_vec, log_vec):
+        #         item.append([])
         if t % REPORT_STEPS == 0:
-            print(t, '/', TOTAL_TIMESTEPS)
-        with torch.no_grad():
-            dist, values = trainer.network.forward(obs)
-            action, log_prob = trainer.network.sample(dist)
-            log_prob = torch.squeeze(log_prob).numpy()
-            values = torch.squeeze(values).numpy()
-
-        clipped_action = np.clip(action, lower_bound, upper_bound)
-        clipped_action = clipped_action.numpy()
-        clipped_action = clipped_action[0]
-        next_obs, reward, terminated, truncated, _ = env.step(clipped_action)
-        if (t+1) % random_reset == 0:
-            terminated = True
-        done = terminated or truncated
-
-        ep_reward += reward
-
-        # Add to buffer
-        #buffer.record(obs, action, reward, values, log_prob)
-
-        # Calculate advantage and returns if it is the end of episode or
-        # its time to update
-        if done or (t + 1) % NUM_STEPS == 0:
-            if done:
-                ep_count += 1
-            batch_count += 1
-            # buffer
-            prev_obs_vec.append(obs)
-            obs_vec.append(next_obs)
-            action_vec.append(action)
-            reward_vec.append(reward)
-            log_vec.append(log_prob)
-            value_vec.append(values)
-            random_reset = random.randint(1, 5000)
+            print(t, '/', NUM_EPOCHS)
+        best_ep_reward = 0
+        for batch in range(BATCH_SIZE):
             obs, _ = env.reset()
-            next_obs = obs
-        obs = next_obs
+            for step in range(NUM_STEPS):
+                with torch.no_grad():
+                    dist, values = trainer.network.forward(obs)
+                    action, log_prob = trainer.network.sample(dist)
+                    log_prob = torch.squeeze(log_prob).numpy()
+                    values = torch.squeeze(values).numpy()
 
-        if (batch_count+1) % BATCH_SIZE == 0:
-            prev_obs_vec.append(obs)
-            obs_vec.append(next_obs)
-            action_vec.append(action)
-            reward_vec.append(reward)
-            log_vec.append(log_prob)
-            value_vec.append(values)
+                clipped_action = np.clip(action, lower_bound, upper_bound)
+                clipped_action = clipped_action.numpy()
+                clipped_action = clipped_action[0]
+                next_obs, reward, terminated, truncated, _ = env.step(clipped_action)
+                done = terminated or truncated
+
+                ep_reward += reward
+
+                prev_obs_vec[batch].append(obs)
+                obs_vec[batch].append(next_obs)
+                action_vec[batch].append(action)
+                reward_vec[batch].append(reward)
+                log_vec[batch].append(log_prob)
+                value_vec[batch].append(values)
+                # Add to buffer
+
+                # Calculate advantage and returns if it is the end of episode or
+                # its time to update
+                if done or step == NUM_STEPS:
+                    if done:
+                        ep_count += 1
+                    if best_ep_reward < ep_reward:
+                        best_ep_reward = ep_reward
+                    break
+        print("Batch complete")
+        best_batch_reward.append(best_ep_reward)
+        for i in range(BATCH_SIZE):
             season_count += 1
-            action_vec = torch.stack(action_vec)
-            log_vec = np.hstack(log_vec)
-            log_vec = torch.tensor(log_vec)
+            #action_vec[i] = np.hstack(action_vec[i])
+            #log_vec[i] = np.hstack(log_vec[i])
+            #log_vec[i] = torch.tensor(log_vec[i])
             # Update for epochs
-            gaes = policy.calculate_gaes(reward_vec, value_vec, obs_vec, trainer.network, GAMMA)
-            value_vec = np.hstack(value_vec)
-            advantage = gaes - value_vec
+            gaes = policy.calculate_gaes(reward_vec[i], value_vec[i], obs_vec[i], trainer.network, GAMMA)
+            value_vec[i] = np.hstack(value_vec[i])
+            advantage = gaes - value_vec[i]
             advantage_mean = torch.mean(advantage)
-            trainer.train_policy(prev_obs_vec, obs_vec, action_vec, log_vec, advantage_mean, reward_vec)
-            max_reward = np.max(np.array(reward_vec))
+            advantage_mean_vec[i].append(advantage_mean)
+        #picking random observations
+        train_data = [[] for _ in range(6)] #prev_obs_vec, obs_vec, action_vec, log_vec, advantage_mean_vec, reward_vec
+        for mini_batch in range(int(BATCH_SIZE*100/MINI_BATCH_SIZE)):
+            for batch in range(BATCH_SIZE):
+                random_number = random.randint(0, len(obs_vec[batch])-1)
+                train_data[0].append(prev_obs_vec[batch][random_number])
+                train_data[1].append(obs_vec[batch][random_number])
+                train_data[2].append(action_vec[batch][random_number])
+                train_data[3].append(torch.tensor(log_vec[batch][random_number]))
+                train_data[4].append(torch.tensor(advantage_mean_vec[batch]))
+                train_data[5].append(reward_vec[batch][random_number])
+        train_data[3] = torch.stack(train_data[3])
+        train_data[4] = torch.stack(train_data[4])
+        trainer.train_policy(train_data[0], train_data[1], train_data[2], train_data[3], train_data[4], train_data[5])
 
-            ep_reward, ep_count = 0.0, 0
-            batch_count = 0
-            prev_obs_vec, obs_vec, action_vec, reward_vec, log_vec, value_vec, max_rewards= [], [], [], [], [], [], []
-
-            random_reset = random.randint(1, 5000)
-            obs, _ = env.reset()
-            next_obs = obs
+        ep_reward, ep_count = 0.0, 0
 
     # Save policy and value network
     Path('saved_network').mkdir(parents=True, exist_ok=True)

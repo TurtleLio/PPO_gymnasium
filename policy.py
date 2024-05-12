@@ -98,7 +98,6 @@ class PPOTrainer():
 
         self.optim = optim.Adam(self.network.parameters(), lr=value_lr)
 
-
     def train_policy(self, obs, next_obs, acts, old_log_probs, gaes, rewards):
         torch.autograd.set_detect_anomaly(True)
         rewards = torch.tensor(rewards)
@@ -138,6 +137,8 @@ class PPOTrainer():
             if kl_div >= self.target_kl_div:
                 print(f"target kl achived after {i} iterations")
                 self.kl_div_arr.append(i)
+                print("end of training")
+                print(f"value loss:{value_loss} | actor loss:{actor_loss} | policy loss:{policy_loss}")
                 break
         actor_loss = torch.squeeze(actor_loss).detach().numpy()
         value_loss = torch.squeeze(value_loss).detach().numpy()
