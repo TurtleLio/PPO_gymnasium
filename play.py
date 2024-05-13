@@ -31,6 +31,7 @@ def play_new_game(network):
         epochs += 1
         if epochs >= 500:
             done = True
+    print(f"reward: {reward_sum}")
 
     env_play.reset()
     env_play.close()

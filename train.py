@@ -18,12 +18,12 @@ import random
 
 
 NUM_STEPS = 5000                    # Timesteps data to collect before updating
-BATCH_SIZE = 5                   # Batch size of training data
+BATCH_SIZE = 10                   # Batch size of training data
 MINI_BATCH_SIZE = 60                # Number of episodes to take from the batch in precentage %
 TOTAL_TIMESTEPS = NUM_STEPS * 7500  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
-NUM_EPOCHS = 500                    # Number of epochs to train
+NUM_EPOCHS = 1000                    # Number of epochs to train
 REPORT_STEPS = 1             # Number of timesteps between reports
 
 
@@ -58,9 +58,9 @@ if __name__ == "__main__":
     max_rewards = []
 
     for t in range(NUM_EPOCHS):
-        reward_vec, value_vec, log_vec, advantage_vec, prev_obs_vec, obs_vec, action_vec, returns_vec = [[] for _ in
+        reward_vec, value_vec, log_vec, advantage_vec, prev_obs_vec, obs_vec, action_vec, returns_vec, masks = [[] for _ in
             range(BATCH_SIZE)], [[]for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in
-            range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)]
+            range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)]
         last_value_vec = []
         # reward_vec, value_vec, log_vec, advantage_mean_vec, prev_obs_vec, obs_vec, action_vec = [], [], [], [], [], [], []
         # for i in range(BATCH_SIZE):
@@ -85,7 +85,7 @@ if __name__ == "__main__":
                 done = terminated or truncated
 
                 ep_reward += reward
-
+                #masks[batch].append(1 - done)
                 prev_obs_vec[batch].append(obs)
                 obs_vec[batch].append(next_obs)
                 action_vec[batch].append(action)
@@ -113,8 +113,8 @@ if __name__ == "__main__":
             #log_vec[i] = np.hstack(log_vec[i])
             #log_vec[i] = torch.tensor(log_vec[i])
             # Update for epochs
-            returns = policy.calculate_gaes(reward_vec[i], value_vec[i], last_value_vec[i], obs_vec[i], trainer.network, GAMMA)
-            returns = torch.stack(returns)
+            returns = policy.calculate_gaes(reward_vec[i], value_vec[i], last_value_vec[i], obs_vec[i], masks[i], trainer.network, GAMMA)
+            #returns = torch.stack(returns)
             returns = torch.squeeze(returns)
             value_vec[i] = np.hstack(value_vec[i])
             advantage = returns - value_vec[i]
@@ -148,20 +148,52 @@ if __name__ == "__main__":
 
     # Plot episodic reward
     # Create a figure and subplots
-    fig, axs = plt.subplots(1, 4)
-    x_values = range(len(trainer.value_loss))
-    x2_values = range(len(trainer.kl_div_arr))
+    # fig, axs = plt.subplots(1, 5)
+    # x_values = range(len(trainer.value_loss))
+    # x2_values = range(len(trainer.kl_div_arr))
+    # x3_values = range(len(best_batch_reward))
     trainer.actor_loss = np.hstack(trainer.actor_loss)
     trainer.policy_loss = np.hstack(trainer.policy_loss)
     trainer.value_loss = np.hstack(trainer.value_loss)
-    axs[0].plot(x_values, trainer.value_loss)
-    axs[0].set_title('value loss')
-    axs[1].plot(x_values, trainer.actor_loss)
-    axs[1].set_title('actor loss')
-    axs[2].plot(x_values, trainer.policy_loss)
-    axs[2].set_title('policy loss')
-    axs[3].plot(x_values, trainer.kl_div_arr)
-    axs[3].set_title('kl div stopped')
+    # axs[0].plot(x_values, trainer.value_loss)
+    # axs[0].set_title('value loss')
+    # axs[1].plot(x_values, trainer.actor_loss)
+    # axs[1].set_title('actor loss')
+    # axs[2].plot(x_values, trainer.policy_loss)
+    # axs[2].set_title('policy loss')
+    # axs[3].plot(x2_values, trainer.kl_div_arr)
+    # axs[3].set_title('kl div stopped')
+    # axs[4].plot(x3_values, best_batch_reward)
+    # axs[4].set_title('kl div stopped')
+    plt.figure()
+    plt.plot(x_values, trainer.value_loss)
+    plt.title('value loss')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+
+    plt.figure()
+    plt.plot(x_values, trainer.actor_loss)
+    plt.title('actor loss')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+
+    plt.figure()
+    plt.plot(x_values, trainer.policy_loss)
+    plt.title('policy loss')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+
+    plt.figure()
+    plt.plot(x2_values, trainer.kl_div_arr)
+    plt.title('kl div stopped')
+    plt.xlabel('epoch')
+    plt.ylabel('iteration')
+
+    plt.figure()
+    plt.plot(x3_values, best_batch_reward)
+    plt.title('best reward')
+    plt.xlabel('epoch')
+    plt.ylabel('reward')
     #plt.tight_layout()
     plt.show()
 

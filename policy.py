@@ -20,20 +20,24 @@ class ActorCriticNetwork(nn.Module):
         super().__init__()
 
         self.policy_layers = nn.Sequential(
-            nn.Linear(obs_space_size, 64),
+            nn.Linear(obs_space_size, 1024),
             nn.ReLU(),
-            nn.Linear(64, 256),
+            nn.Linear(1024, 1024),
             nn.ReLU(),
-            nn.Linear(256, 64),
+            nn.Linear(1024, 1024),
             nn.ReLU(),
-            nn.Linear(64, action_space_size))
+            nn.Linear(1024, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_space_size))
 
         self.value_layers = nn.Sequential(
-            nn.Linear(obs_space_size, 256),
+            nn.Linear(obs_space_size, 1024),
             nn.ReLU(),
-            nn.Linear(256, 128),
+            nn.Linear(1024, 1024),
             nn.ReLU(),
-            nn.Linear(128, 1))
+            nn.Linear(1024, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1))
 
         self.log_std = nn.Parameter(torch.ones(1, action_space_size) * std)
         self.apply(init_weights)
@@ -175,27 +179,28 @@ def discount_rewards(rewards, gamma=0.99):
         new_rewards.append(float(rewards[i]) + gamma * new_rewards[-1])
     return np.array(new_rewards[::-1])
 
-def calculate_gaes(rewards, values, last_value, next_obs, model, gamma=0.99, decay=0.95):
+def calculate_gaes(rewards, values, last_value, next_obs, masks, model, gamma=0.99, decay=0.95):
     """
     Return the General Advantage Estimates from the given rewards and values.
     Paper: https://arxiv.org/pdf/1506.02438.pdf
     """
-    # next_values = []
-    # for obs in next_obs:
-    #     with torch.no_grad():
-    #         next_value = model.value(obs)
-    #     next_values.append(next_value)
+    next_values = []
+    for obs in next_obs:
+        with torch.no_grad():
+            next_value = model.value(obs)
+        next_values.append(next_value)
     gae = 0
     returns = []
-    values = values + [last_value]
-    for step in reversed(range(len(rewards))):
-        delta = rewards[step] + gamma * values[step + 1] - values[step]
-        gae = delta + gamma * decay * gae
-        returns.insert(0, gae + values[step])
-    #deltas = [rew + gamma * next_value - val for rew, val, next_value in zip(rewards, prev_values, next_values)]
-    #deltas_stacked = torch.FloatTensor(deltas)
-    #deltas_stacked = torch.stack(deltas)
-    return returns
+    # values = values + [last_value]
+    # for step in reversed(range(len(rewards))):
+    #     delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
+    #     gae = delta + gamma * decay * masks[step] * gae
+    #     returns.insert(0, gae + values[step])
+    deltas = [rew + gamma * next_value - val for rew, val, next_value in zip(rewards, values, next_values)]
+    deltas_stacked = torch.FloatTensor(deltas)
+    deltas_stacked = torch.stack(deltas)
+    #return returns
+    return deltas_stacked
 
 def rollout(model, env, max_steps=1000):
     """
