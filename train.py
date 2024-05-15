@@ -19,11 +19,11 @@ import random
 
 NUM_STEPS = 5000                    # Timesteps data to collect before updating
 BATCH_SIZE = 10                   # Batch size of training data
-MINI_BATCH_SIZE = 60                # Number of episodes to take from the batch in precentage %
+MINI_BATCH_SIZE = 60              # Number of episodes to take from the batch in precentage %
 TOTAL_TIMESTEPS = NUM_STEPS * 7500  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
-NUM_EPOCHS = 1000                    # Number of epochs to train
+NUM_EPOCHS = 350                    # Number of epochs to train
 REPORT_STEPS = 1             # Number of timesteps between reports
 
 
@@ -82,6 +82,7 @@ if __name__ == "__main__":
                 clipped_action = clipped_action.numpy()
                 clipped_action = clipped_action[0]
                 next_obs, reward, terminated, truncated, _ = env.step(clipped_action)
+                reward = reward * abs(reward) / 10
                 done = terminated or truncated
 
                 ep_reward += reward
@@ -96,10 +97,10 @@ if __name__ == "__main__":
 
                 # Calculate advantage and returns if it is the end of episode or
                 # its time to update
-                if done or step == NUM_STEPS:
+                if done or step == (NUM_STEPS-1):
                     if done:
                         ep_count += 1
-                    if best_ep_reward < ep_reward:
+                    if best_ep_reward < ep_reward or batch == 0:
                         best_ep_reward = ep_reward
                     with torch.no_grad():
                         _, values = trainer.network.forward(next_obs)
@@ -115,6 +116,7 @@ if __name__ == "__main__":
             # Update for epochs
             returns = policy.calculate_gaes(reward_vec[i], value_vec[i], last_value_vec[i], obs_vec[i], masks[i], trainer.network, GAMMA)
             #returns = torch.stack(returns)
+            returns = torch.tensor(returns)
             returns = torch.squeeze(returns)
             value_vec[i] = np.hstack(value_vec[i])
             advantage = returns - value_vec[i]
@@ -125,7 +127,7 @@ if __name__ == "__main__":
             #advantage_mean = torch.mean(advantage)
             #advantage_mean_vec[i].append(advantage_mean)
         #picking random observations
-        train_data = [[] for _ in range(7)] #prev_obs_vec, obs_vec, action_vec, log_vec, advantage_mean_vec, reward_vec, return_vec
+        train_data = [[] for _ in range(8)] #prev_obs_vec, obs_vec, action_vec, log_vec, advantage_mean_vec, reward_vec, return_vec
         for mini_batch in range(int(BATCH_SIZE*100/MINI_BATCH_SIZE)):
             for batch in range(BATCH_SIZE):
                 random_number = random.randint(0, len(obs_vec[batch])-1)
@@ -135,10 +137,11 @@ if __name__ == "__main__":
                 train_data[3].append(torch.tensor(log_vec[batch][random_number]))
                 train_data[4].append(advantage_vec[batch][0][random_number])
                 train_data[5].append(reward_vec[batch][random_number])
-                train_data[6].append(returns_vec[batch][0][random_number])
+                train_data[6].append(value_vec[batch][random_number])
+                train_data[7].append(returns_vec[batch][0][random_number])
         train_data[3] = torch.stack(train_data[3])
         train_data[4] = torch.stack(train_data[4])
-        trainer.train_policy(train_data[0], train_data[1], train_data[2], train_data[3], train_data[4], train_data[5], train_data[6])
+        trainer.train_policy(train_data[0], train_data[1], train_data[2], train_data[3], train_data[4], train_data[5], train_data[6], train_data[7])
 
         ep_reward, ep_count = 0.0, 0
 
@@ -149,9 +152,9 @@ if __name__ == "__main__":
     # Plot episodic reward
     # Create a figure and subplots
     # fig, axs = plt.subplots(1, 5)
-    # x_values = range(len(trainer.value_loss))
-    # x2_values = range(len(trainer.kl_div_arr))
-    # x3_values = range(len(best_batch_reward))
+    x_values = range(len(trainer.value_loss))
+    x2_values = range(len(trainer.kl_div_arr))
+    x3_values = range(len(best_batch_reward))
     trainer.actor_loss = np.hstack(trainer.actor_loss)
     trainer.policy_loss = np.hstack(trainer.policy_loss)
     trainer.value_loss = np.hstack(trainer.value_loss)

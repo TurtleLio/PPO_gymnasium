@@ -5,6 +5,7 @@ from torch import nn
 from torch import optim
 from torch.distributions.categorical import Categorical
 from torch.distributions import Normal
+from collections import deque
 
 
 DEVICE = 'cpu'
@@ -22,10 +23,10 @@ class ActorCriticNetwork(nn.Module):
         self.policy_layers = nn.Sequential(
             nn.Linear(obs_space_size, 1024),
             nn.ReLU(),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
+            # nn.Linear(1024, 1024),
+            # nn.ReLU(),
+            # nn.Linear(1024, 1024),
+            # nn.ReLU(),
             nn.Linear(1024, 256),
             nn.ReLU(),
             nn.Linear(256, action_space_size))
@@ -33,8 +34,8 @@ class ActorCriticNetwork(nn.Module):
         self.value_layers = nn.Sequential(
             nn.Linear(obs_space_size, 1024),
             nn.ReLU(),
-            nn.Linear(1024, 1024),
-            nn.ReLU(),
+            # nn.Linear(1024, 1024),
+            # nn.ReLU(),
             nn.Linear(1024, 256),
             nn.ReLU(),
             nn.Linear(256, 1))
@@ -65,6 +66,7 @@ class ActorCriticNetwork(nn.Module):
     def sample(self, dist):
         action = dist.sample()
         log_prob = torch.sum(dist.log_prob(action), dim=1)
+        #log_prob = dist.log_prob(action)
         return action, log_prob
 
     def save(self, filepath_model_pi, filepath_model_v):
@@ -102,7 +104,7 @@ class PPOTrainer():
 
         self.optim = optim.Adam(self.network.parameters(), lr=value_lr)
 
-    def train_policy(self, obs, next_obs, acts, old_log_probs, advantage, rewards, returns):
+    def train_policy(self, obs, next_obs, acts, old_log_probs, advantage, rewards, old_values, returns):
         torch.autograd.set_detect_anomaly(True)
         rewards = torch.tensor(rewards)
         for i in range(self.max_policy_train_iters):
@@ -119,17 +121,31 @@ class PPOTrainer():
             #values = torch.squeeze(values)
             entropys = torch.stack(entropys)
             returns_stacked = torch.stack(returns)
+            new_log_probs_vec = torch.squeeze(new_log_probs_vec)
             policy_ratio = torch.exp(new_log_probs_vec - old_log_probs)
-            clipped_ratio = policy_ratio.clamp(
-                1 - self.ppo_clip_val, 1 + self.ppo_clip_val)
-            clipped_loss = clipped_ratio * advantage
             full_loss = policy_ratio * advantage
+            #clipped_ratio = policy_ratio.clamp(
+            #    1 - self.ppo_clip_val, 1 + self.ppo_clip_val)
+            clipped_ratio = torch.clamp(policy_ratio, 1 - self.ppo_clip_val, 1 + self.ppo_clip_val)
+            clipped_loss = clipped_ratio * advantage
             #actor_loss_not_mean = torch.where(full_loss < clipped_loss, full_loss, clipped_loss)
             #actor_loss = torch.mean(actor_loss_not_mean)
-            actor_loss = - torch.min(clipped_loss, full_loss).mean()
+            actor_loss = torch.min(clipped_loss, full_loss).mean()
             # value_loss_not_mean = (rewards - values).pow(2)
             # value_loss = torch.mean(value_loss_not_mean)
-            value_loss = (returns_stacked - values).pow(2).mean()
+            vf_loss1 = (returns_stacked - values).pow(2)
+            values = torch.squeeze(values)
+            old_values = torch.tensor(old_values)
+            vpredclipped = old_values + torch.clamp(values - old_values, - self.ppo_clip_val, self.ppo_clip_val)
+            # Note that we ONLY backprop through the new value
+            vf_loss2 = (vpredclipped - returns_stacked).pow(2)
+
+            # 3. Take the MAX between the two losses
+            # This trick has the effect of only updating the current value DIRECTLY if is it WORSE (higher error)
+            # than the old value.
+            # If the old value was worse then the "approximation" will be worse and we update
+            # the new value only a little bit!
+            value_loss = torch.max(vf_loss1, vf_loss2).mean()
             entropys_mean = torch.mean(entropys)
             policy_loss = 0.5 * value_loss + actor_loss - 0.001 * entropys_mean
             if i == 0:
@@ -140,6 +156,7 @@ class PPOTrainer():
                 print(f"value loss:{value_loss} | actor loss:{actor_loss} | policy loss:{policy_loss}")
             self.optim.zero_grad()
             policy_loss.backward()
+            nn.utils.clip_grad_norm_(self.network.parameters(),40)
             self.optim.step()
             kl_div = (old_log_probs - new_log_probs).mean()
             if kl_div >= self.target_kl_div:
@@ -190,17 +207,19 @@ def calculate_gaes(rewards, values, last_value, next_obs, masks, model, gamma=0.
             next_value = model.value(obs)
         next_values.append(next_value)
     gae = 0
-    returns = []
-    # values = values + [last_value]
-    # for step in reversed(range(len(rewards))):
-    #     delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
-    #     gae = delta + gamma * decay * masks[step] * gae
-    #     returns.insert(0, gae + values[step])
-    deltas = [rew + gamma * next_value - val for rew, val, next_value in zip(rewards, values, next_values)]
-    deltas_stacked = torch.FloatTensor(deltas)
-    deltas_stacked = torch.stack(deltas)
-    #return returns
-    return deltas_stacked
+    returns = deque()
+    values = values + [last_value]
+    for step in reversed(range(len(rewards))):
+        # delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
+        # gae = delta + gamma * decay * masks[step] * gae
+        delta = rewards[step] + gamma * values[step + 1] - values[step]
+        gae = delta + gamma * decay * gae
+        returns.appendleft(gae + values[step])
+    # deltas = [rew + gamma * next_value - val for rew, val, next_value in reversed(zip(rewards, values, next_values))]
+    # deltas_stacked = torch.FloatTensor(deltas)
+    # deltas_stacked = torch.stack(deltas_stacked)
+    return returns
+    #return deltas_stacked
 
 def rollout(model, env, max_steps=1000):
     """
