@@ -120,7 +120,7 @@ class PPOTrainer():
             values = torch.stack(values)
             #values = torch.squeeze(values)
             entropys = torch.stack(entropys)
-            returns_stacked = torch.stack(returns)
+            #returns_stacked = torch.stack(returns)
             new_log_probs_vec = torch.squeeze(new_log_probs_vec)
             policy_ratio = torch.exp(new_log_probs_vec - old_log_probs)
             full_loss = policy_ratio * advantage
@@ -133,12 +133,12 @@ class PPOTrainer():
             actor_loss = torch.min(clipped_loss, full_loss).mean()
             # value_loss_not_mean = (rewards - values).pow(2)
             # value_loss = torch.mean(value_loss_not_mean)
-            vf_loss1 = (returns_stacked - values).pow(2)
+            vf_loss1 = (returns - values).pow(2)
             values = torch.squeeze(values)
-            old_values = torch.tensor(old_values)
+            #old_values = torch.tensor(old_values)
             vpredclipped = old_values + torch.clamp(values - old_values, - self.ppo_clip_val, self.ppo_clip_val)
             # Note that we ONLY backprop through the new value
-            vf_loss2 = (vpredclipped - returns_stacked).pow(2)
+            vf_loss2 = (vpredclipped - returns).pow(2)
 
             # 3. Take the MAX between the two losses
             # This trick has the effect of only updating the current value DIRECTLY if is it WORSE (higher error)
@@ -201,19 +201,20 @@ def calculate_gaes(rewards, values, last_value, next_obs, masks, model, gamma=0.
     Return the General Advantage Estimates from the given rewards and values.
     Paper: https://arxiv.org/pdf/1506.02438.pdf
     """
-    next_values = []
-    for obs in next_obs:
-        with torch.no_grad():
-            next_value = model.value(obs)
-        next_values.append(next_value)
+    # next_values = []
+    # for obs in next_obs:
+    #     with torch.no_grad():
+    #         next_value = model.value(obs)
+    #     next_values.append(next_value)
     gae = 0
     returns = deque()
-    values = values + [last_value]
+    #values = values + [last_value]
     for step in reversed(range(len(rewards))):
-        # delta = rewards[step] + gamma * values[step + 1] * masks[step] - values[step]
-        # gae = delta + gamma * decay * masks[step] * gae
-        delta = rewards[step] + gamma * values[step + 1] - values[step]
-        gae = delta + gamma * decay * gae
+        delta = rewards[step] + gamma * last_value * masks[step] - values[step]
+        gae = delta + gamma * decay * masks[step] * gae
+        last_value = values[step]
+        # delta = rewards[step] + gamma * values[step + 1] - values[step]
+        # gae = delta + gamma * decay * gae
         returns.appendleft(gae + values[step])
     # deltas = [rew + gamma * next_value - val for rew, val, next_value in reversed(zip(rewards, values, next_values))]
     # deltas_stacked = torch.FloatTensor(deltas)

@@ -17,13 +17,13 @@ import random
 #from test_pendulum import play_new_game
 
 
-NUM_STEPS = 5000                    # Timesteps data to collect before updating
-BATCH_SIZE = 10                   # Batch size of training data
+NUM_STEPS = 1000                    # Timesteps data to collect before updating
+BATCH_SIZE = 4                   # Batch size of training data
 MINI_BATCH_SIZE = 60              # Number of episodes to take from the batch in precentage %
 TOTAL_TIMESTEPS = NUM_STEPS * 7500  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
-NUM_EPOCHS = 350                    # Number of epochs to train
+NUM_EPOCHS = 200                   # Number of epochs to train
 REPORT_STEPS = 1             # Number of timesteps between reports
 
 
@@ -58,14 +58,8 @@ if __name__ == "__main__":
     max_rewards = []
 
     for t in range(NUM_EPOCHS):
-        reward_vec, value_vec, log_vec, advantage_vec, prev_obs_vec, obs_vec, action_vec, returns_vec, masks = [[] for _ in
-            range(BATCH_SIZE)], [[]for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in
-            range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)], [[] for _ in range(BATCH_SIZE)]
-        last_value_vec = []
-        # reward_vec, value_vec, log_vec, advantage_mean_vec, prev_obs_vec, obs_vec, action_vec = [], [], [], [], [], [], []
-        # for i in range(BATCH_SIZE):
-        #     for item in zip(prev_obs_vec, obs_vec, action_vec, advantage_mean_vec, reward_vec, value_vec, log_vec):
-        #         item.append([])
+        reward_vec, value_vec, log_vec, advantage_vec, prev_obs_vec, obs_vec, action_vec, returns_vec, masks = [], [], [], [], [], [], [], [], []
+        last_value_vec = 0
         if t % REPORT_STEPS == 0:
             print(t, '/', NUM_EPOCHS)
         best_ep_reward = 0
@@ -86,15 +80,13 @@ if __name__ == "__main__":
                 done = terminated or truncated
 
                 ep_reward += reward
-                #masks[batch].append(1 - done)
-                prev_obs_vec[batch].append(obs)
-                obs_vec[batch].append(next_obs)
-                action_vec[batch].append(action)
-                reward_vec[batch].append(reward)
-                log_vec[batch].append(log_prob)
-                value_vec[batch].append(values)
-                # Add to buffer
-
+                masks.append(1 - done)
+                prev_obs_vec.append(obs)
+                obs_vec.append(next_obs)
+                action_vec.append(action)
+                reward_vec.append(reward)
+                log_vec.append(log_prob)
+                value_vec.append(values)
                 # Calculate advantage and returns if it is the end of episode or
                 # its time to update
                 if done or step == (NUM_STEPS-1):
@@ -104,43 +96,32 @@ if __name__ == "__main__":
                         best_ep_reward = ep_reward
                     with torch.no_grad():
                         _, values = trainer.network.forward(next_obs)
-                    last_value_vec.append(values)
+                    #last_value_vec.append(values)
                     break
+        last_value = values
         print("Batch complete")
         best_batch_reward.append(best_ep_reward)
-        for i in range(BATCH_SIZE):
-            season_count += 1
-            #action_vec[i] = np.hstack(action_vec[i])
-            #log_vec[i] = np.hstack(log_vec[i])
-            #log_vec[i] = torch.tensor(log_vec[i])
-            # Update for epochs
-            returns = policy.calculate_gaes(reward_vec[i], value_vec[i], last_value_vec[i], obs_vec[i], masks[i], trainer.network, GAMMA)
-            #returns = torch.stack(returns)
-            returns = torch.tensor(returns)
-            returns = torch.squeeze(returns)
-            value_vec[i] = np.hstack(value_vec[i])
-            advantage = returns - value_vec[i]
-            returns_vec[i].append(returns)
-            advantage_vec[i].append(advantage)
-            #advantage_vec[i] = torch.stack(advantage_vec[i])
-            #advantage_vec[i] = torch.squeeze(advantage_vec[i])
-            #advantage_mean = torch.mean(advantage)
-            #advantage_mean_vec[i].append(advantage_mean)
+        season_count += 1
+        returns = policy.calculate_gaes(reward_vec, value_vec, last_value, obs_vec, masks, trainer.network, GAMMA)
+        returns = torch.tensor(returns)
+        value_vec = torch.tensor([x.item() for x in value_vec])
+        #returns = torch.squeeze(returns)
+        #value_vec[i] = np.hstack(value_vec[i])
+        advantage = returns - value_vec
+        #advantage_mean = torch.mean(advantage)
         #picking random observations
-        train_data = [[] for _ in range(8)] #prev_obs_vec, obs_vec, action_vec, log_vec, advantage_mean_vec, reward_vec, return_vec
-        for mini_batch in range(int(BATCH_SIZE*100/MINI_BATCH_SIZE)):
-            for batch in range(BATCH_SIZE):
-                random_number = random.randint(0, len(obs_vec[batch])-1)
-                train_data[0].append(prev_obs_vec[batch][random_number])
-                train_data[1].append(obs_vec[batch][random_number])
-                train_data[2].append(action_vec[batch][random_number])
-                train_data[3].append(torch.tensor(log_vec[batch][random_number]))
-                train_data[4].append(advantage_vec[batch][0][random_number])
-                train_data[5].append(reward_vec[batch][random_number])
-                train_data[6].append(value_vec[batch][random_number])
-                train_data[7].append(returns_vec[batch][0][random_number])
-        train_data[3] = torch.stack(train_data[3])
-        train_data[4] = torch.stack(train_data[4])
+        log_vec = torch.tensor([x.item() for x in log_vec])
+        train_data = [[] for _ in range(8)] #prev_obs_vec, obs_vec, action_vec, log_vec, advantage_mean_vec, reward_vec, value_vec, return_vec
+        train_data[0] = prev_obs_vec
+        train_data[1] = obs_vec
+        train_data[2] = action_vec
+        train_data[3] = log_vec
+        train_data[4] = advantage
+        train_data[5] = reward_vec
+        train_data[6] = value_vec
+        train_data[7] = returns
+        # train_data[3] = torch.stack(train_data[3])
+        # train_data[4] = torch.stack(train_data[4])
         trainer.train_policy(train_data[0], train_data[1], train_data[2], train_data[3], train_data[4], train_data[5], train_data[6], train_data[7])
 
         ep_reward, ep_count = 0.0, 0
