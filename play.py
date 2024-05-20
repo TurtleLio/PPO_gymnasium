@@ -38,14 +38,14 @@ def play_new_game(network):
     env_play.close()
 
 if __name__ == "__main__":
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     env = gym.make('BipedalWalker-v3')
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     lower_bound = env.action_space.low
     upper_bound = env.action_space.high
-    pi_network = PI_Network(obs_dim,action_dim,lower_bound,upper_bound)
-    v_network = V_Network(obs_dim)
+    pi_network = PI_Network(obs_dim,action_dim,lower_bound,upper_bound).to(device)
+    v_network = V_Network(obs_dim).to(device)
     pi_network.load_state_dict(torch.load('saved_network/pi_network.pt'))
     v_network.load_state_dict(torch.load('saved_network/v_network.pt'))
 
@@ -59,6 +59,6 @@ if __name__ == "__main__":
         action_dim=action_dim,
         initial_std=1.0,
         max_grad_norm=0.5,
-    )
+    ).to(device)
 
     play_new_game(trainer)

@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import policy
 import random
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class PI_Network(nn.Module):
     def __init__(self, obs_dim, action_dim, lower_bound, upper_bound) -> None:
         super().__init__()
@@ -54,20 +55,19 @@ class V_Network(nn.Module):
 
         return values
 
-
-NUM_STEPS = 1000                    # Timesteps data to collect before updating
-BATCH_SIZE = 4                   # Batch size of training data
-MINI_BATCH_SIZE = 60              # Number of episodes to take from the batch in precentage %
+#worked kinda good: batch_size=10, mini_batch_size=20, num_epochs=500
+NUM_STEPS = 2000                    # Timesteps data to collect before updating
+BATCH_SIZE = 10                   # Batch size of training data
+MINI_BATCH_SIZE = 30              # Number of episodes to take from the batch in precentage %
 TOTAL_TIMESTEPS = NUM_STEPS * 7500  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
-NUM_EPOCHS = 500                   # Number of epochs to train
-NUM_EPISODES = 50
+NUM_EPOCHS = 100                   # Number of epochs to train
+NUM_EPISODES = 1000
 REPORT_STEPS = 1             # Number of timesteps between reports
 
 
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     env = gym.make('BipedalWalker-v3')
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
@@ -158,8 +158,6 @@ if __name__ == "__main__":
         # train_data[4] = torch.stack(train_data[4])
         batch_size = int(len(train_data[0]) * MINI_BATCH_SIZE / 100)
         for i in range(NUM_EPOCHS):
-            if i % 100 == 0:
-                print(f"epoch : {i}/{NUM_EPOCHS}")
             train_data_randomized = policy.get_mini_batch(train_data, batch_size)
             for k in range(len(train_data_randomized)):
                 train_data_randomized[k]['advantage'] = (train_data_randomized[k]['advantage'] - np.squeeze(np.mean(train_data_randomized[k]['advantage'], axis=0))) / (np.squeeze(np.std(train_data_randomized[k]['advantage'], axis=0)) + 1e-8)
@@ -182,6 +180,8 @@ if __name__ == "__main__":
 
             if i == 0:
                 print(f"Start of epochs: actor loss: {pi_loss} | value loss: {v_loss} | policy loss: {total_loss}")
+            if i % 100 == 0:
+                print(f"epoch : {i}/{NUM_EPOCHS}")
         print(f"End of epochs: actor loss: {pi_loss} | value loss: {v_loss} | policy loss: {total_loss}")
         ep_reward, ep_count = 0.0, 0
     # Save policy and value network
