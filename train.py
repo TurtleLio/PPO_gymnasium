@@ -25,8 +25,8 @@ class PI_Network(nn.Module):
             torch.tensor(lower_bound, dtype=torch.float32).to(device),
             torch.tensor(upper_bound, dtype=torch.float32).to(device)
         )
-        self.fc1 = nn.Linear(obs_dim, 1024)
-        self.fc2 = nn.Linear(1024, 256)
+        self.fc1 = nn.Linear(obs_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, action_dim)
 
     def forward(self, obs):
@@ -44,8 +44,8 @@ class V_Network(nn.Module):
     def __init__(self, obs_dim) -> None:
         super().__init__()
 
-        self.fc1 = nn.Linear(obs_dim, 1024)
-        self.fc2 = nn.Linear(1024, 256)
+        self.fc1 = nn.Linear(obs_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
         self.fc3 = nn.Linear(256, 1)
 
     def forward(self, obs):
@@ -55,14 +55,23 @@ class V_Network(nn.Module):
 
         return values
 
+
+def decide_epochs(best_reward):
+    if best_reward > -100:
+        return 500
+    elif best_reward > -110:
+        return 250
+    else:
+        return 100
+
 #worked kinda good: batch_size=10, mini_batch_size=20, num_epochs=500
-NUM_STEPS = 2000                    # Timesteps data to collect before updating
-BATCH_SIZE = 10                   # Batch size of training data
-MINI_BATCH_SIZE = 30              # Number of episodes to take from the batch in precentage %
+NUM_STEPS = 2048                   # Timesteps data to collect before updating
+BATCH_SIZE = 10                  # Batch size of training data
+MINI_BATCH_SIZE = 25             # Number of episodes to take from the batch in precentage %
 TOTAL_TIMESTEPS = NUM_STEPS * 7500  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
-NUM_EPOCHS = 100                   # Number of epochs to train
+NUM_EPOCHS = 500                   # Number of epochs to train
 NUM_EPISODES = 1000
 REPORT_STEPS = 1             # Number of timesteps between reports
 
@@ -102,16 +111,17 @@ if __name__ == "__main__":
     for t in range(NUM_EPISODES):
         reward_vec, value_vec, log_vec, advantage_vec, prev_obs_vec, obs_vec, action_vec, returns_vec, masks = [], [], [], [], [], [], [], [], []
         last_value_vec = 0
+        best_ep_reward = 0
         if t % REPORT_STEPS == 0:
             print(t, '/', NUM_EPISODES)
-        best_ep_reward = 0
         for batch in range(BATCH_SIZE):
             obs, _ = env.reset()
             for step in range(NUM_STEPS):
                 action, log_prob, values = trainer.get_action(obs)
                 clipped_action = np.clip(action, lower_bound, upper_bound)
                 next_obs, reward, terminated, truncated, _ = env.step(clipped_action)
-
+                #reward = 1.492612+3.492612*reward+0.01477685*reward*reward
+                #reward = reward*100
                 done = terminated or truncated
 
                 ep_reward += reward
@@ -134,6 +144,7 @@ if __name__ == "__main__":
                     break
         last_value = values
         print("Batch complete")
+        print(f"best reward: {best_ep_reward}")
         best_batch_reward.append(best_ep_reward)
         season_count += 1
         returns, advantage = policy.compute_return_advantage(reward_vec,value_vec,masks, GAMMA,GAE_LAM,last_value)
@@ -157,6 +168,7 @@ if __name__ == "__main__":
         # train_data[3] = torch.stack(train_data[3])
         # train_data[4] = torch.stack(train_data[4])
         batch_size = int(len(train_data[0]) * MINI_BATCH_SIZE / 100)
+        #NUM_EPOCHS = decide_epochs(best_ep_reward)
         for i in range(NUM_EPOCHS):
             train_data_randomized = policy.get_mini_batch(train_data, batch_size)
             for k in range(len(train_data_randomized)):
@@ -167,16 +179,20 @@ if __name__ == "__main__":
                 ) = (
                     torch.tensor(train_data_randomized[k]['prev_obs_vec'], dtype=torch.float32).to(device),
                     torch.tensor(train_data_randomized[k]['action_vec'], dtype=torch.float32).to(device),
-                    torch.tensor(train_data_randomized[k]['action_vec'], dtype=torch.float32).to(device),
+                    torch.tensor(train_data_randomized[k]['log_vec'], dtype=torch.float32).to(device),
                     torch.tensor(train_data_randomized[k]['advantage'], dtype=torch.float32).to(device),
                     torch.tensor(train_data_randomized[k]['returns'], dtype=torch.float32).to(device),
                 )
-                pi_loss,v_loss,total_loss,approx_kl,std, = trainer.update(train_data_randomized[k]['prev_obs_vec'], train_data_randomized[k]['action_vec'],train_data_randomized[k]['action_vec'], train_data_randomized[k]['advantage'],train_data_randomized[k]['returns'])
+                pi_loss,v_loss,total_loss,approx_kl,std, stop = trainer.update(train_data_randomized[k]['prev_obs_vec'], train_data_randomized[k]['action_vec'],train_data_randomized[k]['log_vec'], train_data_randomized[k]['advantage'],train_data_randomized[k]['returns'])
             trainer.actor_loss.append(pi_loss.cpu().numpy())
             trainer.value_loss.append(v_loss.cpu().numpy())
             trainer.policy_loss.append(total_loss.cpu().numpy())
             trainer.approx_kl.append(approx_kl.cpu().numpy())
             trainer.std.append(std.cpu().numpy())
+
+            # if stop:
+            #     print(f"target kl achived after {i} iterations")
+            #     break
 
             if i == 0:
                 print(f"Start of epochs: actor loss: {pi_loss} | value loss: {v_loss} | policy loss: {total_loss}")
@@ -186,7 +202,7 @@ if __name__ == "__main__":
         ep_reward, ep_count = 0.0, 0
     # Save policy and value network
     Path('saved_network').mkdir(parents=True, exist_ok=True)
-    trainer.save('saved_network/pi_network.pt', 'saved_network/v_network.pt')
+    trainer.save('saved_network/pi_network_3.pt', 'saved_network/v_network_3.pt')
 
     # Plot episodic reward
     # Create a figure and subplots

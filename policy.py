@@ -201,12 +201,19 @@ class PPOTrainer(nn.Module):
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.max_grad_norm)
         self.optimizer.step()
 
+        stop = 0
+        kl_div = (log_prob_batch - new_log_prob).mean()
+        old_log = log_prob_batch.mean()
+        if kl_div >= 0.1:
+            stop = 1
+
         return (
             pi_loss.detach(),
             value_loss.detach(),
             total_loss.detach(),
             (torch.mean((ratio - 1) - torch.log(ratio))).detach(),
-            torch.exp(self.log_std).detach()
+            torch.exp(self.log_std).detach(),
+            stop
         )
         actor_loss = torch.squeeze(pi_loss).detach().numpy()
         value_loss = torch.squeeze(value_loss).detach().numpy()

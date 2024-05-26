@@ -46,13 +46,13 @@ if __name__ == "__main__":
     upper_bound = env.action_space.high
     pi_network = PI_Network(obs_dim,action_dim,lower_bound,upper_bound).to(device)
     v_network = V_Network(obs_dim).to(device)
-    pi_network.load_state_dict(torch.load('saved_network/pi_network.pt'))
-    v_network.load_state_dict(torch.load('saved_network/v_network.pt'))
+    pi_network.load_state_dict(torch.load('saved_network/pi_network_3.pt'))
+    v_network.load_state_dict(torch.load('saved_network/v_network_3.pt'))
 
     trainer = policy.PPOTrainer(
         pi_network,
         v_network,
-        learning_rate = 0.004,
+        learning_rate=0.004,
         clip_range=0.2,
         value_coeff=0.5,
         obs_dim=obs_dim,
