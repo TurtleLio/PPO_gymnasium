@@ -19,7 +19,7 @@ from ppobuffer import PPOBuffer
 
 NUM_STEPS = 5000                    # Timesteps data to collect before updating
 BATCH_SIZE = 64                     # Batch size of training data
-TOTAL_TIMESTEPS = NUM_STEPS * 50  # 500   # Total timesteps to run
+TOTAL_TIMESTEPS = NUM_STEPS * 1000  # 500   # Total timesteps to run
 GAMMA = 0.99                        # Discount factor
 GAE_LAM = 0.95                      # For generalized advantage estimation
 NUM_EPOCHS = 500                    # Number of epochs to train
@@ -69,7 +69,7 @@ class V_Network(nn.Module):
 
 if __name__ == "__main__":
 
-    env = gym.make('MountainCarContinuous-v0')
+    env = gym.make('BipedalWalker-v3')
     obs_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     lower_bound = env.action_space.low
@@ -189,7 +189,7 @@ if __name__ == "__main__":
                         v_loss,
                         total_loss,
                         approx_kl,
-                        std,
+                        std, stop
                     ) = policy.update(obs_batch, action_batch,
                                       log_prob_batch, advantage_batch,
                                       return_batch)
@@ -199,7 +199,12 @@ if __name__ == "__main__":
                     total_losses.append(total_loss.numpy())
                     approx_kls.append(approx_kl.numpy())
                     stds.append(std.numpy())
-
+                    if ep == 0 and k == 0:
+                        print(f"start of training: pi loss: {pi_loss} | v loss: {v_loss}| total loss: {total_loss}")
+                if stop:
+                    print(f"target kl achived after {ep} iterations")
+                    break
+            print(f"end of training: pi loss: {pi_loss} | v loss: {v_loss}| total loss: {total_loss}")
             buffer.clear()
 
             mean_ep_reward = ep_reward / ep_count
